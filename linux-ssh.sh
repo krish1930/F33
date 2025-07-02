@@ -11,7 +11,8 @@ chmod +x /usr/local/bin/ngrok
 rm -f ngrok.zip
 
 echo "### Configuring ngrok ###"
-/usr/local/bin/ngrok config add-authtoken "$NGROK_AUTH_TOKEN"
+/usr/local/bin/ngrok authtoken "$NGROK_AUTH_TOKEN"
+
 
 echo "### Installing gotty (web terminal) ###"
 wget -q https://github.com/yudai/gotty/releases/download/v0.0.11/gotty_linux_amd64 -O gotty
