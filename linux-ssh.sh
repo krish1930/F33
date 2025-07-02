@@ -15,16 +15,14 @@ echo "### Configuring ngrok ###"
 /usr/local/bin/ngrok authtoken "$NGROK_AUTH_TOKEN"
 
 echo "### Installing gotty (web terminal) ###"
-wget -q -O gotty.tar.gz https://github.com/yudai/gotty/releases/download/v0.0.11/gotty_linux_amd64.tar.gz
-tar -xzf gotty.tar.gz
+wget -q https://github.com/yudai/gotty/releases/download/v0.0.11/gotty_linux_amd64 -O gotty
 chmod +x gotty
-rm -f gotty.tar.gz
 
 echo "### Updating password for default user (runner) ###"
 echo "runner:$LINUX_USER_PASSWORD" | sudo chpasswd
 
 echo "### Starting gotty web terminal on port 8080 ###"
-./gotty -w bash &
+./gotty -w -p 8080 bash &
 sleep 5
 
 echo "### Starting ngrok HTTP tunnel for port 8080 ###"
