@@ -1,125 +1,75 @@
 #!/bin/bash
+# linux-run.sh LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME
 
-# Configuration variables
-LINUX_USER_PASSWORD="krish"
-NGROK_AUTH_TOKEN="2SKcLerzezlK6RqZ46Qn94kvKlW_5dyB5HGL386Pgx8JrAaZ8"
-NGROK_REGION="us"
-PORT=8080
-GOTTY_VERSION="v1.5.0"  # Updated to a valid version from sorenisanerd/gotty
+# Exit on any error
+set -e
 
-# Function to check if command exists
-command_exists() {
-    command -v "$1" >/dev/null 2>&1
-}
+# Check for required environment variables
+if [[ -z "$NGROK_AUTH_TOKEN" ]]; then
+  echo "Error: NGROK_AUTH_TOKEN is not set"
+  exit 2
+fi
 
-# Function to clean up processes on exit
-cleanup() {
-    echo "Cleaning up..."
-    pkill -f "gotty.*$PORT" 2>/dev/null
-    pkill -f "ngrok.*$PORT" 2>/dev/null
-}
+if [[ -z "$LINUX_USER_PASSWORD" ]]; then
+  echo "Error: LINUX_USER_PASSWORD is not set for user: $LINUX_USERNAME"
+  exit 3
+fi
 
-# Set up trap for cleanup on script exit or interrupt
-trap cleanup EXIT INT TERM
+if [[ -z "$LINUX_USERNAME" ]]; then
+  echo "Error: LINUX_USERNAME is not set"
+  exit 4
+fi
 
-echo "### Installing dependencies ###"
-# Check for required tools
-for cmd in wget unzip curl; do
-    if ! command_exists "$cmd"; then
-        echo "Installing $cmd..."
-        if ! sudo apt-get update && sudo apt-get install -y "$cmd"; then
-            echo "❌ Failed to install $cmd"
-            exit 1
-        fi
-    fi
-done
+if [[ -z "$LINUX_MACHINE_NAME" ]]; then
+  echo "Error: LINUX_MACHINE_NAME is not set"
+  exit 5
+fi
+
+echo "### Creating user: $LINUX_USERNAME ###"
+# Create user with home directory and add to sudo group
+sudo useradd -m -s /bin/bash "$LINUX_USERNAME"
+sudo usermod -aG sudo "$LINUX_USERNAME"
+echo "$LINUX_USERNAME:$LINUX_USER_PASSWORD" | sudo chpasswd
+
+# Set hostname
+sudo hostnamectl set-hostname "$LINUX_MACHINE_NAME"
 
 echo "### Installing ngrok ###"
-if ! command_exists ngrok; then
-    if ! wget -q -O ngrok.zip https://bin.equinox.io/c/4VmDzA7iaHb/ngrok-stable-linux-amd64.zip; then
-        echo "❌ Failed to download ngrok"
-        exit 1
-    fi
-    if ! unzip -o ngrok.zip; then
-        echo "❌ Failed to unzip ngrok"
-        rm -f ngrok.zip
-        exit 1
-    fi
-    sudo mv ngrok /usr/local/bin/ngrok
-    chmod +x /usr/local/bin/ngrok
-    rm -f ngrok.zip
-else
-    echo "ngrok already installed"
-fi
+# Download and install the latest ngrok version
+wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.zip
+unzip -o ngrok-v3-stable-linux-amd64.zip
+chmod +x ./ngrok
+rm ngrok-v3-stable-linux-amd64.zip
 
-echo "### Configuring ngrok ###"
-if ! /usr/local/bin/ngrok authtoken "$NGROK_AUTH_TOKEN" 2>/dev/null; then
-    echo "❌ Failed to configure ngrok authtoken"
-    exit 1
-fi
+echo "### Starting ngrok proxy for port 22 ###"
+# Remove old log file if exists
+rm -f .ngrok.log
 
-echo "### Installing gotty ###"
-if ! command_exists gotty; then
-    GOTTY_URL="https://github.com/sorenisanerd/gotty/releases/download/${GOTTY_VERSION}/gotty_${GOTTY_VERSION}_linux_amd64.tar.gz"
-    if ! wget -q "$GOTTY_URL" -O gotty.tar.gz; then
-        echo "❌ Failed to download gotty from $GOTTY_URL"
-        exit 1
-    fi
-    if ! tar -xzf gotty.tar.gz; then
-        echo "❌ Failed to extract gotty"
-        rm -f gotty.tar.gz
-        exit 1
-    fi
-    chmod +x gotty
-    sudo mv gotty /usr/local/bin/gotty
-    rm -f gotty.tar.gz
-else
-    echo "gotty already installed"
-fi
+# Set ngrok authtoken
+./ngrok authtoken "$NGROK_AUTH_TOKEN" > /dev/null 2>&1
 
-echo "### Updating password for default user (runner) ###"
-if ! echo "runner:$LINUX_USER_PASSWORD" | sudo chpasswd; then
-    echo "❌ Failed to update user password"
-    exit 1
-fi
-
-echo "### Starting gotty web terminal on port $PORT ###"
-if ! /usr/local/bin/gotty -w -p "$PORT" bash >/dev/null 2>&1 & then
-    echo "❌ Failed to start gotty"
-    exit 1
-fi
-sleep 2
-
-echo "### Starting ngrok HTTP tunnel for port $PORT ###"
-if ! /usr/local/bin/ngrok http --region="$NGROK_REGION" "$PORT" >ngrok.log 2>&1 & then
-    echo "❌ Failed to start ngrok"
-    exit 1
-fi
+# Start ngrok in the background
+./ngrok tcp 22 --log ".ngrok.log" &
 
 # Wait for ngrok to initialize
-NGROK_URL=""
-for i in {1..15}; do
-    NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -oE 'https://[0-9a-z-]+\.ngrok\.io' | head -n 1)
-    if [[ -n "$NGROK_URL" ]]; then
-        break
-    fi
-    sleep 2
-done
+sleep 10
 
-if [[ -z "$NGROK_URL" ]]; then
-    echo "❌ Ngrok tunnel failed to start or no URL found. Check ngrok.log for details."
-    cat ngrok.log
-    exit 2
+# Check for errors in ngrok log
+if grep -q "command failed" .ngrok.log; then
+  echo "Error: ngrok failed to start"
+  cat .ngrok.log
+  exit 6
 fi
 
-echo ""
-echo "=========================================="
-echo "🔓 Web shell available at: $NGROK_URL"
-echo "Login with user: runner"
-echo "Password: $LINUX_USER_PASSWORD"
-echo "=========================================="
-echo "Note: Keep this terminal open to maintain the tunnel"
-echo "Press Ctrl+C to terminate"
-
-# Keep script running
-wait
+# Extract and display SSH connection details
+NGROK_URL=$(grep -o -E "tcp://(.+)" .ngrok.log | head -1)
+if [[ -n "$NGROK_URL" ]]; then
+  SSH_ADDRESS=$(echo "$NGROK_URL" | sed "s/tcp:\/\//ssh $LINUX_USERNAME@/" | sed "s/:/ -p /")
+  echo ""
+  echo "=========================================="
+  echo "To connect: $SSH_ADDRESS"
+  echo "=========================================="
+else
+  echo "Error: Could not retrieve ngrok URL"
+  exit 7
+fi
