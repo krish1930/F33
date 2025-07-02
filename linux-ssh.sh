@@ -1,49 +1,54 @@
-#linux-run.sh LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME
 #!/bin/bash
-# /home/runner/.ngrok2/ngrok.yml
 
-sudo useradd -m $LINUX_USERNAME
-sudo adduser $LINUX_USERNAME sudo
+# Usage: ./linux-run.sh LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME
+
+LINUX_USER_PASSWORD=$1
+NGROK_AUTH_TOKEN=$2
+LINUX_USERNAME=$3
+LINUX_MACHINE_NAME=$4
+
+if [[ -z "$LINUX_USER_PASSWORD" || -z "$NGROK_AUTH_TOKEN" || -z "$LINUX_USERNAME" || -z "$LINUX_MACHINE_NAME" ]]; then
+  echo "Usage: $0 LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME"
+  exit 1
+fi
+
+echo "### Creating new user: $LINUX_USERNAME ###"
+sudo useradd -m "$LINUX_USERNAME"
 echo "$LINUX_USERNAME:$LINUX_USER_PASSWORD" | sudo chpasswd
-sed -i 's/\/bin\/sh/\/bin\/bash/g' /etc/passwd
-sudo hostname $LINUX_MACHINE_NAME
+sudo usermod -aG sudo "$LINUX_USERNAME"
+sudo sed -i 's/\/bin\/sh/\/bin\/bash/g' /etc/passwd
+sudo hostnamectl set-hostname "$LINUX_MACHINE_NAME"
 
-if [[ -z "$NGROK_AUTH_TOKEN" ]]; then
-  echo "Please set 'NGROK_AUTH_TOKEN'"
-  exit 2
-fi
+echo "### Installing ngrok ###"
+wget -q -O ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+sudo tar -xzf ngrok.tgz -C /usr/local/bin
+rm -f ngrok.tgz
+chmod +x /usr/local/bin/ngrok
 
-if [[ -z "$LINUX_USER_PASSWORD" ]]; then
-  echo "Please set 'LINUX_USER_PASSWORD' for user: $USER"
-  exit 3
-fi
+echo "### Configuring ngrok ###"
+/usr/local/bin/ngrok authtoken "$NGROK_AUTH_TOKEN"
 
-echo "### Install ngrok ###"
+echo "### Updating password for default user ($USER) ###"
+echo "$USER:$LINUX_USER_PASSWORD" | sudo chpasswd
 
-wget -q https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-sudo tar -xvzf ~/Downloads/ngrok-v3-stable-linux-amd64.tgz -C /usr/local/bin
-chmod +x ./ngrok
-
-echo "### Update user: $USER password ###"
-echo -e "$LINUX_USER_PASSWORD\n$LINUX_USER_PASSWORD" | sudo passwd "$USER"
-
-echo "### Start ngrok proxy for 22 port ###"
-
-
+echo "### Starting ngrok tunnel for SSH (port 22) ###"
 rm -f .ngrok.log
-./ngrok authtoken "$NGROK_AUTH_TOKEN"
-./ngrok tcp 22 --log ".ngrok.log" &
+/usr/local/bin/ngrok tcp 22 --log ".ngrok.log" &
 
 sleep 10
-HAS_ERRORS=$(grep "command failed" < .ngrok.log)
+
+HAS_ERRORS=$(grep "command failed" .ngrok.log)
 
 if [[ -z "$HAS_ERRORS" ]]; then
+  NGROK_URL=$(grep -o -E "tcp://[0-9a-zA-Z.:]+" .ngrok.log)
+  SSH_CMD=$(echo "$NGROK_URL" | sed "s/tcp:\/\//ssh $LINUX_USERNAME@/" | sed "s/:/ -p /")
+
   echo ""
   echo "=========================================="
-  echo "To connect: $(grep -o -E "tcp://(.+)" < .ngrok.log | sed "s/tcp:\/\//ssh $USER@/" | sed "s/:/ -p /")"
-  echo "or conenct with $(grep -o -E "tcp://(.+)" < .ngrok.log | sed "s/tcp:\/\//ssh (Your Linux Username)@/" | sed "s/:/ -p /")"
+  echo "To connect: $SSH_CMD"
   echo "=========================================="
 else
+  echo "Ngrok failed to start:"
   echo "$HAS_ERRORS"
   exit 4
 fi
