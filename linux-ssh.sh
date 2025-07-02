@@ -13,7 +13,6 @@ rm -f ngrok.zip
 echo "### Configuring ngrok ###"
 /usr/local/bin/ngrok authtoken "$NGROK_AUTH_TOKEN"
 
-
 echo "### Installing gotty (web terminal) ###"
 wget -q https://github.com/yudai/gotty/releases/download/v0.0.11/gotty_linux_amd64 -O gotty
 chmod +x gotty
@@ -27,10 +26,15 @@ sleep 5
 
 echo "### Starting ngrok HTTP tunnel for port 8080 ###"
 /usr/local/bin/ngrok http --region=us 8080 > ngrok.log &
-sleep 15
 
-# Use ngrok's API to get public URL
-NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -oE 'https://[0-9a-z]+\.ngrok.io' | head -n 1)
+# Wait for ngrok to initialize
+for i in {1..10}; do
+  NGROK_URL=$(curl -s http://127.0.0.1:4040/api/tunnels | grep -oE 'https://[0-9a-z]+\.ngrok.io' | head -n 1)
+  if [[ -n "$NGROK_URL" ]]; then
+    break
+  fi
+  sleep 2
+done
 
 if [[ -z "$NGROK_URL" ]]; then
   echo "❌ Ngrok tunnel failed to start or no URL found."
