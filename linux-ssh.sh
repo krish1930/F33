@@ -1,54 +1,51 @@
 #!/bin/bash
 
-# Usage: ./linux-run.sh LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME
+# Usage: ./linux-run.sh LINUX_USER_PASSWORD NGROK_AUTH_TOKEN
 
-LINUX_USER_PASSWORD=krish
-NGROK_AUTH_TOKEN=2SKcLerzezlK6RqZ46Qn94kvKlW_5dyB5HGL386Pgx8JrAaZ8
-LINUX_USERNAME=krish
-LINUX_MACHINE_NAME=krish
+LINUX_USER_PASSWORD="${1:-krish}"
+NGROK_AUTH_TOKEN="${2:-2SKcLerzezlK6RqZ46Qn94kvKlW_5dyB5HGL386Pgx8JrAaZ8}"
 
-if [[ -z "$LINUX_USER_PASSWORD" || -z "$NGROK_AUTH_TOKEN" || -z "$LINUX_USERNAME" || -z "$LINUX_MACHINE_NAME" ]]; then
-  echo "Usage: $0 LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME"
+if [[ -z "$LINUX_USER_PASSWORD" || -z "$NGROK_AUTH_TOKEN" ]]; then
+  echo "Usage: $0 LINUX_USER_PASSWORD NGROK_AUTH_TOKEN"
   exit 1
 fi
 
-echo "### Creating new user: $LINUX_USERNAME ###"
-sudo useradd -m "$LINUX_USERNAME"
-echo "$LINUX_USERNAME:$LINUX_USER_PASSWORD" | sudo chpasswd
-sudo usermod -aG sudo "$LINUX_USERNAME"
-sudo sed -i 's/\/bin\/sh/\/bin\/bash/g' /etc/passwd
-sudo hostnamectl set-hostname "$LINUX_MACHINE_NAME"
-
 echo "### Installing ngrok ###"
 wget -q -O ngrok.tgz https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
-sudo tar -xzf ngrok.tgz -C /usr/local/bin
-rm -f ngrok.tgz
-chmod +x /usr/local/bin/ngrok
+tar -xzf ngrok.tgz
+chmod +x ngrok
+rm ngrok.tgz
 
 echo "### Configuring ngrok ###"
-/usr/local/bin/ngrok authtoken "$NGROK_AUTH_TOKEN"
+./ngrok authtoken "$NGROK_AUTH_TOKEN"
 
-echo "### Updating password for default user ($USER) ###"
-echo "$USER:$LINUX_USER_PASSWORD" | sudo chpasswd
+echo "### Installing gotty (web terminal) ###"
+wget -q https://github.com/yudai/gotty/releases/download/v0.2.0/gotty_linux_amd64.tar.gz -O gotty.tar.gz
+tar -xzf gotty.tar.gz
+chmod +x gotty
+rm gotty.tar.gz
 
-echo "### Starting ngrok tunnel for SSH (port 22) ###"
-rm -f .ngrok.log
-/usr/local/bin/ngrok tcp 22 --log ".ngrok.log" &
+echo "### Starting gotty web terminal on port 8080 ###"
+./gotty -w bash &
+
+sleep 5
+
+echo "### Starting ngrok HTTP tunnel for port 8080 ###"
+./ngrok http 8080 > .ngrok.log &
 
 sleep 10
 
-HAS_ERRORS=$(grep "command failed" .ngrok.log)
+NGROK_URL=$(grep -o -m1 "https://[0-9a-zA-Z./]*\.ngrok.io" .ngrok.log)
 
-if [[ -z "$HAS_ERRORS" ]]; then
-  NGROK_URL=$(grep -o -E "tcp://[0-9a-zA-Z.:]+" .ngrok.log)
-  SSH_CMD=$(echo "$NGROK_URL" | sed "s/tcp:\/\//ssh $LINUX_USERNAME@/" | sed "s/:/ -p /")
-
+if [[ -n "$NGROK_URL" ]]; then
   echo ""
   echo "=========================================="
-  echo "To connect: $SSH_CMD"
+  echo "🔓 Web shell available at: $NGROK_URL"
+  echo "Username: (leave blank)"
+  echo "Password: (leave blank unless configured)"
   echo "=========================================="
 else
-  echo "Ngrok failed to start:"
-  echo "$HAS_ERRORS"
-  exit 4
+  echo "❌ Ngrok tunnel failed to start or no URL found."
+  cat .ngrok.log
+  exit 2
 fi
