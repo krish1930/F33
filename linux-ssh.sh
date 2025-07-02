@@ -5,7 +5,7 @@ LINUX_USER_PASSWORD="krish"
 NGROK_AUTH_TOKEN="2SKcLerzezlK6RqZ46Qn94kvKlW_5dyB5HGL386Pgx8JrAaZ8"
 NGROK_REGION="us"
 PORT=8080
-GOTTY_VERSION="v0.0.11"
+GOTTY_VERSION="v1.5.0"  # Updated to a valid version from sorenisanerd/gotty
 
 # Function to check if command exists
 command_exists() {
@@ -27,7 +27,10 @@ echo "### Installing dependencies ###"
 for cmd in wget unzip curl; do
     if ! command_exists "$cmd"; then
         echo "Installing $cmd..."
-        sudo apt-get update && sudo apt-get install -y "$cmd"
+        if ! sudo apt-get update && sudo apt-get install -y "$cmd"; then
+            echo "❌ Failed to install $cmd"
+            exit 1
+        fi
     fi
 done
 
@@ -37,7 +40,11 @@ if ! command_exists ngrok; then
         echo "❌ Failed to download ngrok"
         exit 1
     fi
-    unzip -o ngrok.zip
+    if ! unzip -o ngrok.zip; then
+        echo "❌ Failed to unzip ngrok"
+        rm -f ngrok.zip
+        exit 1
+    fi
     sudo mv ngrok /usr/local/bin/ngrok
     chmod +x /usr/local/bin/ngrok
     rm -f ngrok.zip
@@ -53,12 +60,19 @@ fi
 
 echo "### Installing gotty ###"
 if ! command_exists gotty; then
-    if ! wget -q "https://github.com/yudai/gotty/releases/download/${GOTTY_VERSION}/gotty_linux_amd64" -O gotty; then
-        echo "❌ Failed to download gotty"
+    GOTTY_URL="https://github.com/sorenisanerd/gotty/releases/download/${GOTTY_VERSION}/gotty_${GOTTY_VERSION}_linux_amd64.tar.gz"
+    if ! wget -q "$GOTTY_URL" -O gotty.tar.gz; then
+        echo "❌ Failed to download gotty from $GOTTY_URL"
+        exit 1
+    fi
+    if ! tar -xzf gotty.tar.gz; then
+        echo "❌ Failed to extract gotty"
+        rm -f gotty.tar.gz
         exit 1
     fi
     chmod +x gotty
     sudo mv gotty /usr/local/bin/gotty
+    rm -f gotty.tar.gz
 else
     echo "gotty already installed"
 fi
