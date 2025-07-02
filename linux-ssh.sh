@@ -1,8 +1,14 @@
 #!/bin/bash
-# linux-run.sh LINUX_USER_PASSWORD NGROK_AUTH_TOKEN LINUX_USERNAME LINUX_MACHINE_NAME
+# linux-run.sh with predefined values for krish
 
 # Exit on any error
 set -e
+
+# Predefined environment variables
+LINUX_USER_PASSWORD="krish"
+NGROK_AUTH_TOKEN="2SKcLerzezlK6RqZ46Qn94kvKlW_5dyB5HGL386Pgx8JrAaZ8"
+LINUX_USERNAME="krish"
+LINUX_MACHINE_NAME="krish"
 
 # Check for required environment variables
 if [[ -z "$NGROK_AUTH_TOKEN" ]]; then
